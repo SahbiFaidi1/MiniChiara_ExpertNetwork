@@ -1,0 +1,16 @@
+services:
+  db:
+    image: ankane/pgvector:pg16
+    container_name: expert_network_db
+    environment:
+      POSTGRES_DB: expert_network
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - expert_network_pgdata:/var/lib/postgresql/data
+
+volumes:
+  expert_network_pgdata:
+
