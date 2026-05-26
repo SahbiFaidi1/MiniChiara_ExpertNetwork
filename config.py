@@ -22,6 +22,8 @@ class Settings(BaseSettings):
     # Optional so you can run CLI/import without Slack configured.
     slack_bot_token: str = Field(default="", validation_alias="SLACK_BOT_TOKEN")
     slack_signing_secret: str = Field(default="", validation_alias="SLACK_SIGNING_SECRET")
+    # Socket Mode (no ngrok): enable in Slack app + app-level token with connections:write
+    slack_app_token: str = Field(default="", validation_alias="SLACK_APP_TOKEN")
 
     # DB
     database_url: str = Field(default="", validation_alias="DATABASE_URL")

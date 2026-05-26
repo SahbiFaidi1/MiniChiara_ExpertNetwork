@@ -4,23 +4,86 @@ from typing import Any, Iterable
 
 from src.models import Person, RankedResultsEnvelope
 
+_MAX_WHO_DISPLAY = 3
+_MAX_REASON_LEN = 180
+
+
+def _truncate(text: str, max_len: int) -> str:
+    s = (text or "").strip()
+    if len(s) <= max_len:
+        return s
+    return s[: max_len - 1].rstrip() + "…"
+
+
+def _format_who_knows(who_knows_them: list[str]) -> str:
+    if not who_knows_them:
+        return "—"
+    shown = [w.strip() for w in who_knows_them if w.strip()]
+    if not shown:
+        return "—"
+    head = shown[:_MAX_WHO_DISPLAY]
+    extra = len(shown) - len(head)
+    if extra > 0:
+        return f"{', '.join(head)} (+{extra} more)"
+    return ", ".join(head)
+
 
 def help_blocks() -> list[dict[str, Any]]:
     return [
-        {"type": "header", "text": {"type": "plain_text", "text": "Expert network (MVP)"}},
+        {"type": "header", "text": {"type": "plain_text", "text": "Expert network guide"}},
         {
             "type": "section",
             "text": {
                 "type": "mrkdwn",
                 "text": (
-                    "*Commands*\n"
-                    "- `/expert-search <query>` – semantic search\n"
-                    "- `/expert-add` – add a person\n"
-                    "- `/expert-view <name>` – view a profile\n"
-                    "- `/expert-delete <name>` – delete a profile\n"
-                    "- `/expert-help` – show this help"
+                    "Ask naturally to find people in our network.\n"
+                    "Example: `Who do we know in energy trading?`"
                 ),
             },
+        },
+        {"type": "divider"},
+        {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": (
+                    "*1) Search experts*\n"
+                    "- DM me your question directly\n"
+                    "- In channels: mention me, e.g. `@Mini Chiara who knows AI infra operators?`\n"
+                    "- Slash command: `/expert-search <query>`"
+                ),
+            },
+        },
+        {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": (
+                    "*2) Filter by category*\n"
+                    "- Fellows only: `/search_fellows <query>`\n"
+                    "- Experts only: `/search_experts <query>`\n"
+                    "- VC profiles only: `/search_vcs <query>`\n"
+                    "- Chat shortcuts: `fellows <query>`, `experts <query>`, `vcs <query>`"
+                ),
+            },
+        },
+        {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": (
+                    "*3) Manage profiles*\n"
+                    "- Add: `/expert-add`\n"
+                    "- View details: `/expert-view <name>`\n"
+                    "- Delete: `/expert-delete <name>`"
+                ),
+            },
+        },
+        {
+            "type": "context",
+            "elements": [
+                {"type": "mrkdwn", "text": "Tip: type `help` anytime in DM to show this guide again."}
+            ],
         },
     ]
 
@@ -89,19 +152,28 @@ def person_profile_blocks(person: Person) -> list[dict[str, Any]]:
 
 
 def search_results_blocks(query: str, ranked: RankedResultsEnvelope) -> list[dict[str, Any]]:
+    total = len(ranked.results)
     blocks: list[dict[str, Any]] = [
         {"type": "header", "text": {"type": "plain_text", "text": "Expert search results"}},
-        {"type": "section", "text": {"type": "mrkdwn", "text": f"*Query*: {query}"}},
+        {"type": "section", "text": {"type": "mrkdwn", "text": f"*Query:* {query}"}},
     ]
 
     if not ranked.results:
         blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": "No matches found."}})
         return blocks
 
+    blocks.append(
+        {
+            "type": "context",
+            "elements": [{"type": "mrkdwn", "text": f"Showing top {total} matches"}],
+        }
+    )
+
     for i, r in enumerate(ranked.results, start=1):
-        who = ", ".join(r.who_knows_them) if r.who_knows_them else "—"
+        who = _format_who_knows(r.who_knows_them)
         role = r.current_role or "—"
         company = r.company or "—"
+        why = _truncate(r.why_relevant, _MAX_REASON_LEN)
         blocks.append(
             {
                 "type": "section",
@@ -110,12 +182,14 @@ def search_results_blocks(query: str, ranked: RankedResultsEnvelope) -> list[dic
                     "text": (
                         f"*{i}. {r.name}*\n"
                         f"{role} @ {company}\n"
-                        f"*Who knows them*: {who}\n"
-                        f"*Why relevant*: {r.why_relevant}"
+                        f"*Who knows them:* {who}\n"
+                        f"*Why relevant:* {why}"
                     ),
                 },
             }
         )
+        if i < total:
+            blocks.append({"type": "divider"})
 
     blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": "Use `/expert-view <name>` to open a profile."}]})
     return blocks

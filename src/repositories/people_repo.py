@@ -15,6 +15,28 @@ def _row_to_person(row: dict[str, Any]) -> Person:
 
 
 class PeopleRepo:
+    def _category_filter_sql(self, keywords: list[str]) -> tuple[str, dict[str, Any]]:
+        terms = [k.strip().lower() for k in keywords if k and k.strip()]
+        if not terms:
+            return "", {}
+
+        like_patterns = [f"%{t}%" for t in terms]
+        clause = """
+            where (
+                exists (
+                    select 1
+                    from unnest(p.expertise_tags) as tag
+                    where lower(tag) = any(%(category_terms)s)
+                )
+                or lower(coalesce(p.current_role, '')) like any(%(category_like)s)
+                or lower(coalesce(p.company, '')) like any(%(category_like)s)
+                or lower(coalesce(p.background, '')) like any(%(category_like)s)
+                or lower(coalesce(p.notes, '')) like any(%(category_like)s)
+                or lower(coalesce(p.searchable_text, '')) like any(%(category_like)s)
+            )
+        """
+        return clause, {"category_terms": terms, "category_like": like_patterns}
+
     def create_person(self, data: PersonCreate, searchable_text: str) -> Person:
         with get_conn() as conn:
             row = conn.execute(
@@ -115,8 +137,14 @@ class PeopleRepo:
                     (person_id, embedding, embedding_model),
                 )
 
-    def search_candidates(self, query_embedding: list[float], k: int) -> list[SearchCandidate]:
+    def search_candidates(
+        self,
+        query_embedding: list[float],
+        k: int,
+        category_keywords: list[str] | None = None,
+    ) -> list[SearchCandidate]:
         settings = get_settings()
+        category_clause, category_params = self._category_filter_sql(category_keywords or [])
 
         if settings.use_pgvector:
             with get_conn() as conn:
@@ -125,13 +153,16 @@ class PeopleRepo:
                 qv = Vector(query_embedding)
                 rows = conn.execute(
                     """
-                    select p.*, (1 - (e.embedding <=> %s)) as similarity
+                    select p.*, (1 - (e.embedding <=> %(qv_a)s)) as similarity
                     from public.people p
                     join public.person_embeddings e on e.person_id = p.id
-                    order by e.embedding <=> %s
-                    limit %s
+                    """
+                    + category_clause
+                    + """
+                    order by e.embedding <=> %(qv_b)s
+                    limit %(k)s
                     """,
-                    (qv, qv, k),
+                    {"qv_a": qv, "qv_b": qv, "k": k, **category_params},
                 ).fetchall()
 
             out: list[SearchCandidate] = []
@@ -148,7 +179,11 @@ class PeopleRepo:
                 select p.*, e.embedding as embedding
                 from public.people p
                 join public.person_embeddings e on e.person_id = p.id
+                """
+                + category_clause
+                + """
                 """,
+                category_params,
             ).fetchall()
 
         if not rows:

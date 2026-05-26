@@ -64,10 +64,16 @@ python3 scripts/setup_db.py
 
 ### Slack commands (implemented)
 - `/expert-search <query>`: semantic search with ranked results + “why relevant”
+- `/search_fellows <query>`: semantic search filtered to fellows
+- `/search_experts <query>`: semantic search filtered to experts
+- `/search_vcs <query>`: semantic search filtered to VC profiles
 - `/expert-add`: add a person via modal
 - `/expert-view <name>`: view a profile (includes Edit/Delete buttons)
 - `/expert-delete <name>`: delete via confirmation modal
 - `/expert-help`: help
+- Natural chat:
+  - DM the bot with a plain-English query (no slash command)
+  - Mention the bot in a channel, e.g. `@Mini Chiara who knows energy trading experts?`
 
 ### Environment setup
 1. Create a `.env` file from `.env.example`
@@ -80,11 +86,14 @@ python3 scripts/setup_db.py
 ### Create the Slack app
 In `api.slack.com/apps`:
 - **OAuth & Permissions**
-  - Bot token scopes: `commands`, `chat:write`, `chat:write.public`, `im:write`
+  - Bot token scopes: `commands`, `chat:write`, `chat:write.public`, `im:write`, `app_mentions:read`
   - Install the app to your workspace and copy the bot token
 - **Slash Commands**
   - Create commands:
     - `/expert-search`
+    - `/search_fellows`
+    - `/search_experts`
+    - `/search_vcs`
     - `/expert-add`
     - `/expert-view`
     - `/expert-delete`
@@ -93,6 +102,10 @@ In `api.slack.com/apps`:
 - **Interactivity & Shortcuts**
   - Enable interactivity
   - Set **Request URL** to `https://YOUR_PUBLIC_URL/slack/events`
+- **Event Subscriptions** (for natural DM + mentions)
+  - Enable events
+  - Set **Request URL** to `https://YOUR_PUBLIC_URL/slack/events`
+  - Subscribe to bot events: `message.im`, `app_mention`
 
 ### Run locally
 1. Install deps:

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import logging
+import threading
+from contextlib import asynccontextmanager
 from uuid import UUID
 
 from fastapi import FastAPI, HTTPException, Request
@@ -31,10 +33,32 @@ def build_slack_app() -> SlackApp:
 
 def build_api() -> FastAPI:
     settings = get_settings()
-    api = FastAPI(title="Expert Network MVP")
-
     slack_app = build_slack_app()
     slack_handler = SlackRequestHandler(slack_app)
+    slack_events_url = f"{settings.public_base_url.rstrip('/')}/slack/events"
+
+    @asynccontextmanager
+    async def lifespan(api: FastAPI):
+        socket_handler = None
+        socket_thread = None
+        if settings.slack_app_token:
+            from slack_bolt.adapter.socket_mode import SocketModeHandler
+
+            socket_handler = SocketModeHandler(slack_app, settings.slack_app_token)
+            socket_thread = threading.Thread(target=socket_handler.start, daemon=True)
+            socket_thread.start()
+            logging.getLogger(__name__).info("Slack Socket Mode started (HTTP tunnel not required)")
+        else:
+            logging.getLogger(__name__).warning(
+                "Slack HTTP mode: set every Slack Request URL to %s "
+                "(or add SLACK_APP_TOKEN for Socket Mode)",
+                slack_events_url,
+            )
+        yield
+        if socket_handler is not None:
+            socket_handler.close()
+
+    api = FastAPI(title="Expert Network MVP", lifespan=lifespan)
     repo = PeopleRepo()
     embedder = Embedder()
     retriever = Retriever(repo=repo, embedder=embedder)
@@ -43,6 +67,20 @@ def build_api() -> FastAPI:
     @api.get("/healthz")
     async def healthz() -> dict:
         return {"ok": True}
+
+    @api.get("/setup")
+    async def setup() -> dict:
+        """Open http://localhost:8000/setup while developing to copy the Slack Request URL."""
+        return {
+            "server": "running",
+            "slack_events_url": slack_events_url,
+            "socket_mode_active": bool(settings.slack_app_token),
+            "steps": [
+                "Slack app → Slash Commands → Edit each command → paste slack_events_url",
+                "Slack app → Interactivity & Shortcuts → On → paste the same URL",
+                "Or enable Socket Mode + add SLACK_APP_TOKEN to .env (no ngrok URLs needed)",
+            ],
+        }
 
     class SearchRequest(BaseModel):
         query: str = Field(min_length=1)
@@ -98,10 +136,12 @@ def build_api() -> FastAPI:
 
     @api.post("/slack/events")
     async def slack_events(req: Request):
+        log = logging.getLogger(__name__)
+        if req.headers.get("x-slack-signature"):
+            log.info("Slack HTTP request received")
         return await slack_handler.handle(req)
 
-    logging.getLogger(__name__).info("Slack endpoint mounted at /slack/events")
-    logging.getLogger(__name__).info("Set Slack request URL to %s/slack/events", settings.public_base_url.rstrip("/"))
+    logging.getLogger(__name__).info("Slack HTTP endpoint: POST %s", slack_events_url)
     return api
 
 
